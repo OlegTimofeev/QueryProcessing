@@ -1,9 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
+	"github.com/labstack/echo"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,61 +10,56 @@ import (
 
 type FetchTask struct {
 	REQUEST string `json:"request"`
-}
-
-func (m msg) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	fmt.Fprint(resp, m)
+	METHOD  string `json:"method"`
+	HEADERS string `json:"headers"`
+	BODY    string `json:"body"`
 }
 
 var count int = 1
 var fetchTasks = make(map[string]FetchTask)
 
 func main() {
-	r := mux.NewRouter()
-	fetchTasks[strconv.Itoa(count)] = FetchTask{REQUEST: "test1"}
+	r := echo.New()
+	fetchTasks[strconv.Itoa(count)] = FetchTask{REQUEST: "test1", METHOD: "GET", HEADERS: "HEAD", BODY: "BODY"}
 	count++
-	fetchTasks[strconv.Itoa(count)] = FetchTask{REQUEST: "test2"}
+	fetchTasks[strconv.Itoa(count)] = FetchTask{REQUEST: "test2", METHOD: "GET", HEADERS: "HEAD", BODY: "BODY"}
 	count++
 	fmt.Println("Server is listening...")
-	r.HandleFunc("/getTasks", getTasks).Methods("GET")
-	r.HandleFunc("/getTask/{id}", getTask).Methods("GET")
-	r.HandleFunc("/addTask", addFetchTask).Methods("POST")
-	r.HandleFunc("/deleteTask/{id}", deleteFetchTask).Methods("DELETE")
+	r.GET("/getTasks", getTasks)
+	r.GET("/getTask/:id", getTask)
+	r.POST("/addTask", addFetchTask)
+	r.DELETE("/deleteTask/:id", deleteFetchTask)
 	log.Fatal(http.ListenAndServe(":8000", r))
 
 }
 
-func addFetchTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func addFetchTask(c echo.Context) error {
 	var ft FetchTask
-	_ = json.NewDecoder(r.Body).Decode(&ft)
+	c.Bind(&ft)
 	fetchTasks[strconv.Itoa(count)] = ft
 	count++
-	json.NewEncoder(w).Encode(ft)
-
+	return c.String(http.StatusOK, "Task added")
 }
 
-func getTasks(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(fetchTasks)
+func getTasks(c echo.Context) error {
+	return c.JSON(http.StatusOK, fetchTasks)
 }
 
-func getTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	var taskId = params["id"]
+func getTask(c echo.Context) error {
+	var taskId = c.Param("id")
 	_, ft := fetchTasks[taskId]
 	if ft {
-		json.NewEncoder(w).Encode(fetchTasks[taskId])
+		return c.JSON(http.StatusOK, fetchTasks[taskId])
 	}
+	return c.String(http.StatusOK, "Task not found")
 }
 
-func deleteFetchTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	params := mux.Vars(r)
-	var taskId = params["id"]
+func deleteFetchTask(c echo.Context) error {
+	var taskId = c.Param("id")
 	_, ft := fetchTasks[taskId]
 	if ft {
 		delete(fetchTasks, taskId)
+		return c.String(http.StatusOK, "Task deleted")
 	}
+	return c.String(http.StatusOK, "Task not found")
 }
