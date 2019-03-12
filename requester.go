@@ -3,5 +3,5 @@ package main
 import "net/http"
 
 type Requester interface {
-	send() http.Request
+	send(task FetchTask) (http.Response, error)
 }
