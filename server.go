@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/labstack/echo"
 	"github.com/rs/xid"
@@ -12,25 +13,27 @@ import (
 )
 
 type FetchTask struct {
-	ID      string `json:"id"`
-	Request string `json:"request"`
-	Method  string `json:"method"`
-	Headers string `json:"headers"`
-	Body    string `json:"body"`
+	ID      string            `json:"id"`
+	Request string            `json:"request"`
+	Method  string            `json:"method"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
 }
 
-type MapTool struct{}
+type MapStore struct {
+	fetchTasks map[string]FetchTask
+}
 type RequesterTool struct{}
 
-var fetchTasks = make(map[string]FetchTask)
-var mt MapTool
+var ms MapStore
 
 func main() {
+	ms.fetchTasks = make(map[string]FetchTask)
 	r := echo.New()
 	guid1 := xid.New()
-	fetchTasks[guid1.String()] = FetchTask{ID: guid1.String(), Request: "test1", Method: "GET", Headers: "HEAD", Body: "BODY"}
+	ms.fetchTasks[guid1.String()] = FetchTask{ID: guid1.String(), Request: "test1", Method: "GET", Body: "BODY"}
 	guid2 := xid.New()
-	fetchTasks[guid2.String()] = FetchTask{ID: guid2.String(), Request: "test2", Method: "GET", Headers: "HEAD", Body: "BODY"}
+	ms.fetchTasks[guid2.String()] = FetchTask{ID: guid2.String(), Request: "test2", Method: "GET", Body: "BODY"}
 	fmt.Println("Server is listening...")
 	r.GET("/task", getTasks)
 	r.GET("/task/:id", getTask)
@@ -48,19 +51,22 @@ func addFetchTask(c echo.Context) error {
 	}
 	guid := xid.New()
 	ft.ID = guid.String()
-	mt.save(ft)
+	ms.save(&ft)
 	return c.String(http.StatusOK, "Task added \n ID:"+guid.String())
 }
 
 func getTasks(c echo.Context) error {
-	return c.JSON(http.StatusOK, fetchTasks)
+	var ids []string
+	for e := range ms.fetchTasks {
+		ids = append(ids, ms.fetchTasks[e].ID)
+	}
+	return c.JSON(http.StatusOK, ids)
 }
 
 func getTask(c echo.Context) error {
 	var taskId = c.Param("id")
-	_, ft := fetchTasks[taskId]
-	if ft {
-		var ft = mt.getById(taskId)
+	ft, err := ms.getById(taskId)
+	if err == nil {
 		return c.JSON(http.StatusOK, ft)
 	}
 	return c.String(http.StatusOK, "Task not found")
@@ -68,15 +74,15 @@ func getTask(c echo.Context) error {
 
 func deleteFetchTask(c echo.Context) error {
 	var taskId = c.Param("id")
-	_, ft := fetchTasks[taskId]
-	if ft {
-		mt.delete(taskId)
+	_, err := ms.getById(taskId)
+	if err == nil {
+		ms.delete(taskId)
 		return c.String(http.StatusOK, "Task deleted")
 	}
 	return c.String(http.StatusNotFound, "Task not found")
 }
 
-func (rt RequesterTool) send(task FetchTask) string {
+func (rt RequesterTool) send(task *FetchTask) string {
 	client := &http.Client{}
 	jsonValue, _ := json.Marshal(task.Body)
 	req, err := http.NewRequest(task.Method, task.Request, bytes.NewBuffer(jsonValue))
@@ -95,15 +101,18 @@ func (rt RequesterTool) send(task FetchTask) string {
 	return string(respBody[:])
 }
 
-func (m MapTool) getById(id string) FetchTask {
-	var ft = fetchTasks[id]
-	return ft
+func (m MapStore) getById(id string) (FetchTask, error) {
+	_, ft := ms.fetchTasks[id]
+	if ft {
+		return ms.fetchTasks[id], nil
+	}
+	return FetchTask{}, errors.New("Not found")
 }
 
-func (m MapTool) save(ft FetchTask) {
-	fetchTasks[ft.ID] = ft
+func (m MapStore) save(ft *FetchTask) {
+	ms.fetchTasks[ft.ID] = *ft
 }
 
-func (m MapTool) delete(id string) {
-	delete(fetchTasks, id)
+func (m MapStore) delete(id string) {
+	delete(ms.fetchTasks, id)
 }
