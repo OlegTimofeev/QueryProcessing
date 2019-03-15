@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/labstack/echo"
 	"github.com/rs/xid"
+	"io/ioutil"
 	"log"
 	"net/http"
 )
@@ -17,6 +18,10 @@ type FetchTask struct {
 	Method  string            `json:"method"`
 	Headers map[string]string `json:"headers"`
 	Body    string            `json:"body"`
+}
+
+func (ft *FetchTask) init() {
+	ft.Headers = make(map[string]string)
 }
 
 type MapStore struct {
@@ -57,6 +62,11 @@ func sendTask(c echo.Context) error {
 		var resp, err = rt.send(task)
 		if err == nil {
 			rt.saveResponse(task, resp)
+			respString, err := rt.respToString(resp)
+			if err == nil {
+				return c.String(http.StatusOK, "Response:"+respString)
+			}
+			return c.String(http.StatusBadRequest, err.Error())
 		}
 	}
 	return c.String(http.StatusBadRequest, err.Error())
@@ -64,6 +74,7 @@ func sendTask(c echo.Context) error {
 
 func addFetchTask(c echo.Context) error {
 	var ft FetchTask
+	ft.init()
 	var err error
 	if err = c.Bind(&ft); err != nil {
 		return c.String(http.StatusBadRequest, "Wrong JSON")
@@ -139,4 +150,12 @@ func (m *MapStore) generateID(ft *FetchTask) {
 }
 func (rt *RequesterTool) saveResponse(ft *FetchTask, resp *http.Response) {
 	rt.requests[ft.ID] = *resp
+}
+func (rt *RequesterTool) respToString(resp *http.Response) (string, error) {
+	defer resp.Body.Close()
+	respBody, err := ioutil.ReadAll(resp.Body)
+	if err == nil {
+		return string(respBody[:]), nil
+	}
+	return "", err
 }
