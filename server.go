@@ -26,24 +26,25 @@ func (ft *FetchTask) init() {
 
 type MapStore struct {
 	fetchTasks map[string]FetchTask
+	requests   map[string]http.Response
 }
 type RequesterTool struct {
-	requests map[string]http.Response
 }
 
-func (ms *MapStore) init() {
-	ms.fetchTasks = make(map[string]FetchTask)
-}
-func (rt *RequesterTool) init() {
-	rt.requests = make(map[string]http.Response)
+func NewMapStore() Store {
+	return &MapStore{
+		fetchTasks: make(map[string]FetchTask),
+		requests:   make(map[string]http.Response)}
 }
 
-var ms MapStore
-var rt RequesterTool
+func NewRequester() Requester {
+	return &RequesterTool{}
+}
+
+var rt = NewRequester()
+var ms = NewMapStore()
 
 func main() {
-	ms.init()
-	rt.init()
 	r := echo.New()
 	fmt.Println("Server is listening...")
 	r.GET("/task", getTasks)
@@ -61,7 +62,7 @@ func sendTask(c echo.Context) error {
 	if err == nil {
 		var resp, err = rt.send(task)
 		if err == nil {
-			rt.saveResponse(task, resp)
+			ms.saveResponse(task, resp)
 			respString, err := rt.respToString(resp)
 			if err == nil {
 				return c.String(http.StatusOK, "Response:"+respString)
@@ -84,11 +85,8 @@ func addFetchTask(c echo.Context) error {
 }
 
 func getTasks(c echo.Context) error {
-	var ids []string
-	for e := range ms.fetchTasks {
-		ids = append(ids, ms.fetchTasks[e].ID)
-	}
-	return c.JSON(http.StatusOK, ids)
+
+	return c.JSON(http.StatusOK, ms.mapToArray())
 }
 
 func getTask(c echo.Context) error {
@@ -115,41 +113,44 @@ func (rt *RequesterTool) send(task *FetchTask) (*http.Response, error) {
 	jsonValue, _ := json.Marshal(task.Body)
 	req, err := http.NewRequest(task.Method, task.Request, bytes.NewBuffer(jsonValue))
 	if err != nil {
-		return &http.Response{}, err
+		return nil, err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return &http.Response{}, err
+		return nil, err
 	}
 	if err != nil {
-		return &http.Response{}, err
+		return nil, err
 	}
 	return resp, nil
 }
 
 func (m *MapStore) getById(id string) (*FetchTask, error) {
-	_, ft := ms.fetchTasks[id]
+	_, ft := m.fetchTasks[id]
 	if ft {
-		var task = ms.fetchTasks[id]
+		var task = m.fetchTasks[id]
 		return &task, nil
 	}
 	return &FetchTask{}, errors.New("Not found")
 }
 
-func (m *MapStore) save(ft *FetchTask) {
+func (m *MapStore) save(ft *FetchTask) error {
 	m.generateID(ft)
-	ms.fetchTasks[ft.ID] = *ft
+	m.fetchTasks[ft.ID] = *ft
+	return nil
 }
 
-func (m *MapStore) delete(id string) {
-	delete(ms.fetchTasks, id)
+func (m *MapStore) delete(id string) error {
+	delete(m.fetchTasks, id)
+	return nil
 }
 
 func (m *MapStore) generateID(ft *FetchTask) {
 	ft.ID = xid.New().String()
 }
-func (rt *RequesterTool) saveResponse(ft *FetchTask, resp *http.Response) {
-	rt.requests[ft.ID] = *resp
+func (ms *MapStore) saveResponse(ft *FetchTask, resp *http.Response) error {
+	ms.requests[ft.ID] = *resp
+	return nil
 }
 func (rt *RequesterTool) respToString(resp *http.Response) (string, error) {
 	defer resp.Body.Close()
@@ -158,4 +159,11 @@ func (rt *RequesterTool) respToString(resp *http.Response) (string, error) {
 		return string(respBody[:]), nil
 	}
 	return "", err
+}
+func (ms *MapStore) mapToArray() []string {
+	var ids []string
+	for e := range ms.fetchTasks {
+		ids = append(ids, ms.fetchTasks[e].ID)
+	}
+	return ids
 }
